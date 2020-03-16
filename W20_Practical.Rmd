@@ -1,13 +1,13 @@
 ---
 title: "W20 Bio201 Practical"
-author: "Kristi Gdanetz MacCready"
+author: "Akshaya Ravikumar"
 date: "3/11/2020"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "~/Documents/Bio201_W20/Practical/")
+knitr::opts_knit$set(root.dir = "~/Documents/UMBio201/Practical/")
 ```
 
 # Load Packages
@@ -31,21 +31,113 @@ Statistics generated from tests should be entered as comments in the code blocks
 Import the sample measurements and data. Based on the number of samples per participant, are the data in this file from individual samples or weekly averages?  
 ```{r}
 # name: sample_df
+
+sample_df <- read_delim("raw_data/practical_samples.txt", 
+                            delim = "\t", escape_double = FALSE, 
+                            trim_ws = TRUE,
+                            col_types = cols(
+                                              id = col_character(),
+                                              participant_id = col_character(),
+                                              study_week = col_character(),
+                                              semester = col_character(),
+                                              supplement_consumed = col_character(),
+                                              frequency = col_character(),
+                                              quantity_compliant = col_character(),
+                                              enterotype = col_character(),
+                                              sex = col_character(),
+                                              age = col_double(),
+                                              race_ethnicity = col_character(),
+                                              weight_kg = col_double(),
+                                              height_meters = col_double(),
+                                              acetate_mmol_kg = col_double(),
+                                              butyrate_mmol_kg = col_double(),
+                                              propionate_mmol_kg = col_double(),
+                                              ph = col_double(),
+                                              bristol = col_double(),
+                                              fiber_g = col_double())) %>%
+  # make all column names lower case
+  rename_all(tolower) %>% 
+  # remove duplicate sample ids
+  distinct(., id, .keep_all = TRUE) 
+  # subset for samples, semesters, weeks of interest 
+  
+dim(sample_df) #50 rows, 18 cols
+n_distinct(sample_df$participant_id) #25
 ```
 
 Import the shared table.
 ```{r}
 #name: shared_m
+shared_m <- read_delim("raw_data/practical_shared.txt",
+                            delim = "\t", escape_double = FALSE, 
+                            trim_ws = TRUE, na=c("NA"),
+                            col_types = list()) %>%
+             #rename_all(tolower) %>% 
+             # remove duplicate sample ids
+              distinct(., id, .keep_all = TRUE)%>%
+    select(id, starts_with("Otu")) %>%
+  # drop control samples from sequencing
+  filter(str_detect(id, "^U")) %>%
+  # remove duplicate sample ids
+  distinct(id, .keep_all = TRUE) %>% 
+  # sample IDs need to be made into row names
+  column_to_rownames(var = "id") %>% 
+  # convert data frame to matrix object
+  as.matrix() %>% 
+  # convert to phyloseq object 
+  otu_table(., taxa_are_rows = FALSE) 
+
+sample_names(shared_m)
+
+
 ```
+
 
 Import the taxonomy table.
 ```{r}
 #name: taxa_m
+
+taxa_m <- read_delim("raw_data/practical_taxonomy.txt",
+                            delim = "\t", escape_double = FALSE, 
+                            trim_ws = TRUE, na=c("NA"),
+                            col_types = list()) %>%
+               # sequence variants (OTUs) need to be made into row names 
+  column_to_rownames(var = "ESV") %>% 
+  as.matrix() %>%
+  # convert to phyloseq object 
+  tax_table()  
+
+taxa_names(taxa_m)
+
 ```
 
 Create a phyloseq object, subset for your assigned enterotype. 
 ```{r}
 # name the result: physq_enterotype_number (e.g., physq_4)
+
+sample_m <- sample_df %>%
+  # make all column names lower case
+  rename_all(tolower) %>% 
+  # remove duplicate sample ids
+  distinct(., id, .keep_all = TRUE) %>%  
+  # sample IDs need to be made into row names
+  column_to_rownames(var = "id") %>% 
+  # specify type of phyloseq object
+  sample_data() 
+
+
+
+physq_3 <- phyloseq(shared_m, taxa_m, sample_m) %>% 
+  #subset for enterotype
+  subset_samples(., enterotype = "Type 3") %>%
+  # subset for consent and compliance
+  subset_samples(., quantity_compliant != "none") %>%
+  # remove problematic semester(s)
+  subset_samples(., semester != "Winter2015") %>% 
+  # subset for weeks of interest
+  subset_samples(., study_week == "week1" | study_week == "week3") %>%
+  # subset for potato supplements 
+  subset_samples(., supplement_consumed == "BRMPS" | supplement_consumed == "LOODAT") 
 ```
 
 
@@ -53,54 +145,382 @@ Create a phyloseq object, subset for your assigned enterotype.
 Using the sample measurement data frame, determine if any of the short chain fatty acids increased during consumption of potato starch twice a day. Remember to exclude Winter 2015 participants when analyzing SCFA data. 
 ```{r}
 # data formatting, if needed
+sample_df2 <- sample_df %>%
+          filter(enterotype == "Type 3",
+                 semester != "Winter2015",
+                 frequency == "2xdaily",
+                 supplement_consumed == "BRMPS" | supplement_consumed == "LOODAT" )
+
+
+prop_wk1_2x <- sample_df2 %>%
+  filter(study_week == "week1") %>%
+  rename(prop_wk1 = "propionate_mmol_kg" ) %>%
+  select(-study_week)
+
+ prop_wk3_2x <- sample_df2%>%
+  filter(study_week == "week3") %>%
+  rename(prop_wk3 = "propionate_mmol_kg") %>%
+  select(-study_week)
+  
+but_wk1_2x <- sample_df2 %>%
+  filter(study_week == "week1") %>%
+  rename(but_wk1 = "butyrate_mmol_kg" ) %>%
+  select(-study_week)
+
+but_wk3_2x <- sample_df2%>%
+  filter(study_week == "week3") %>%
+  rename(but_wk3 = "butyrate_mmol_kg") %>%
+  select(-study_week)
+
+
+ace_wk1_2x <- sample_df2 %>%
+  filter(study_week == "week1") %>%
+  rename(ace_wk1 = "acetate_mmol_kg" ) %>%
+  select(-study_week)
+
+ace_wk3_2x <- sample_df2%>%
+  filter(study_week == "week3") %>%
+  rename(ace_wk3 = "acetate_mmol_kg") %>%
+  select(-study_week)
+
+
+
+         
+
+         
+  
 ```
 ### Plot
 ```{r}
 # plot: name plot_q1
+prop_plot <- sample_df2 %>%
+  ggplot(aes(x = study_week, y = propionate_mmol_kg )) +
+  geom_violin(aes(color = study_week)) + geom_jitter(aes(color = study_week)) +
+  facet_grid(~frequency) +
+  xlab("Study Week") +
+  ylab("Propionate mmol/kg")+
+  theme(legend.position = "none")
+  
+prop_plot
+
+ace_plot <- sample_df2 %>%
+  ggplot(aes(x = study_week, y = acetate_mmol_kg )) +
+  geom_violin(aes(color = study_week)) + geom_jitter(aes(color = study_week)) +
+  facet_grid(~frequency) +
+  xlab("Study Week") +
+  ylab("Acetate mmol/kg")+
+  theme(legend.position = "none")
+ace_plot
+
+but_plot <- sample_df2 %>%
+  ggplot(aes(x = study_week, y = butyrate_mmol_kg )) +
+  geom_violin(aes(color = study_week)) + geom_jitter(aes(color = study_week)) +
+  facet_grid(~frequency) +
+  xlab("Study Week") +
+  ylab("Butryate mmol/kg")+
+  theme(legend.position = "none")
+but_plot
+
 ```
 ### Assumptions
 ```{r}
 # check assumptions
+
+#Sample Size 
+
+summarise(prop_wk1_2x, sample_size = n())
+
+summarise(prop_wk3_2x, sample_size = n())
+
+summarise(but_wk1_2x, sample_size = n())
+
+summarise(but_wk3_2x, sample_size = n())
+
+summarise(ace_wk1_2x, sample_size = n())
+
+summarise(ace_wk3_2x, sample_size = n())
+
+#All sample sizes are 10
+
+
+#Normality Assumption
+
+#prop
+shapiro.test(prop_wk1_2x$prop_wk1) #p-value = 0.2391
+
+ggplot(prop_wk1_2x, aes(x = prop_wk1)) + geom_histogram()
+
+qqnorm(prop_wk1_2x$prop_wk1); qqline(prop_wk1_2x$prop_wk1) 
+
+shapiro.test(prop_wk3_2x$prop_wk3) #p-value = 0.155
+
+ggplot(prop_wk3_2x, aes(x = prop_wk3)) + geom_histogram()
+
+qqnorm(prop_wk3_2x$prop_wk3); qqline(prop_wk3_2x$prop_wk3) 
+
+#but
+
+shapiro.test(but_wk1_2x$but_wk1) #p-value = 0.3916
+
+ggplot(but_wk1_2x, aes(x = but_wk1)) + geom_histogram()
+
+qqnorm(but_wk1_2x$but_wk1); qqline(but_wk1_2x$but_wk1) 
+
+shapiro.test(but_wk3_2x$but_wk3) #p-value = 0.1148
+
+ggplot(but_wk3_2x, aes(x = but_wk3)) + geom_histogram()
+
+qqnorm(but_wk3_2x$but_wk3); qqline(but_wk3_2x$but_wk3) 
+
+
+#ace
+
+shapiro.test(ace_wk1_2x$ace_wk1) #p-value = 0.1109
+
+ggplot(ace_wk1_2x, aes(x = ace_wk1)) + geom_histogram()
+
+qqnorm(ace_wk1_2x$ace_wk1); qqline(ace_wk1_2x$ace_wk1) 
+
+shapiro.test(ace_wk3_2x$ace_wk3) #p-value = 0.01237
+
+ggplot(ace_wk3_2x, aes(x = ace_wk3)) + geom_histogram()
+
+qqnorm(ace_wk3_2x$ace_wk3); qqline(ace_wk3_2x$ace_wk3) 
+
+
+#Equal Variances
+  var.test(x = prop_wk1_2x$prop_wk1, 
+         y = prop_wk3_2x$prop_wk3, 
+         alternative = "two.sided") 
+  
+    var.test(x = but_wk1_2x$but_wk1, 
+         y = but_wk3_2x$but_wk3, 
+         alternative = "two.sided") 
+    
+      var.test(x = ace_wk1_2x$ace_wk1, 
+         y = ace_wk3_2x$ace_wk3, 
+         alternative = "two.sided")
+      
+#variances not equal 
 ```
 ### Stat test
 ```{r}
-# statistical test(s)
+# statistical test(s)'
+
+##Prop
+t.test(x = prop_wk1_2x$prop_wk1, 
+       y = prop_wk3_2x$prop_wk3,
+       paired = TRUE, 
+       var.equal = FALSE, 
+       alternative = "greater")
+
+#p-value = 0.08863
+
+##But
+t.test(x = but_wk1_2x$but_wk1, 
+       y = but_wk3_2x$but_wk3,
+       paired = TRUE, 
+       var.equal = FALSE, 
+       alternative = "greater")
+
+#p-value = 0.996
+
+##Ace 
+t.test(x = ace_wk1_2x$ace_wk1, 
+       y = ace_wk3_2x$ace_wk3,
+       paired = TRUE, 
+       var.equal = FALSE, 
+       alternative = "greater")
+
+#p-value = 0.8974
 ```
 
-< write conclusions here > 
+As evidenced by both the graphical and statistical representations of the data, the only SCFA that showed a significant or apparent increase correlated to supplemental starch intake was Propionate, as there is a clear trend on the plot of the data, as well as a significantly low p-value of 0.08863, given a 0.10 threshold. 
 
 
 # Question 2 
 Using the sample measurement data frame, determine if the pH decreased during consumption of potato starch twice a day. Do your conclusions change if change in pH is analyzed for each brand (BRMPS or LOODAT) of potato starch individually? 
 ```{r}
 # data formatting, if needed
+brmps_sample_df <- sample_df2 %>%
+  filter(supplement_consumed == "BRMPS")
+
+loodat_sample_df <- sample_df2 %>%
+  filter(supplement_consumed == "LOODAT")
+#use df from q1
+
+pH_wk1_2x <- sample_df2 %>%
+  filter(study_week == "week1") %>%
+  rename(pH_wk1 = "ph" ) %>%
+  select(-study_week)
+
+pH_wk3_2x <- sample_df2 %>%
+  filter(study_week == "week3") %>%
+  rename(pH_wk3 = "ph" ) %>%
+  select(-study_week)
+
+b_pH_wk1_2x <- brmps_sample_df %>%
+  filter(study_week == "week1") %>%
+  rename(pH_wk1 = "ph" ) %>%
+  select(-study_week)
+
+b_pH_wk3_2x <- brmps_sample_df%>%
+  filter(study_week == "week3") %>%
+  rename(pH_wk3 = "ph" ) %>%
+  select(-study_week)
+
+l_pH_wk1_2x <- loodat_sample_df%>%
+  filter(study_week == "week1") %>%
+  rename(pH_wk1 = "ph" ) %>%
+  select(-study_week)
+
+l_pH_wk3_2x <- loodat_sample_df %>%
+  filter(study_week == "week3") %>%
+  rename(pH_wk3 = "ph" ) %>%
+  select(-study_week)
+
+#NO pH data for BRMPS supplement
+
+
 ```
 
 ### Plot
 ```{r}
+pH_plot <- sample_df2 %>%
+  ggplot(aes(x = study_week, y = ph )) +
+  geom_violin(aes(color = study_week)) + geom_jitter(aes(color = study_week)) +
+  facet_grid(~frequency) +
+  xlab("Supplement Study Week") +
+  ylab("pH")+
+  theme(legend.position = "none")
+  
+pH_plot
+
+
+
+
+
 
 ```
 
 ### Assumptions
 ```{r}
 
+summarise(pH_wk1_2x, sample_size = n())
+
+summarise(pH_wk3_2x, sample_size = n())
+
+shapiro.test(pH_wk1_2x$pH_wk1) #p-value = 0.7203
+
+ggplot(pH_wk1_2x, aes(x = pH_wk1)) + geom_histogram()
+
+qqnorm(pH_wk1_2x$pH_wk1); qqline(pH_wk1_2x$pH_wk1) 
+
+shapiro.test(pH_wk3_2x$pH_wk3) #p-value = 0.1508
+
+ggplot(pH_wk3_2x, aes(x = pH_wk3)) + geom_histogram()
+
+qqnorm(pH_wk3_2x$pH_wk3); qqline(pH_wk3_2x$pH_wk3)
+
+#not normal 
+
+#variance test
+
+  var.test(x = pH_wk1_2x$pH_wk1, 
+         y = pH_wk3_2x$pH_wk3, 
+         alternative = "two.sided") 
+
+  #Unequal variances
+
+
+
 ```
 ### Stat test
 ```{r}
+#non-parametric test
+
+wilcox.test(x = pH_wk1_2x$pH_wk1, 
+            y = pH_wk3_2x$pH_wk3, 
+            paired = TRUE,
+            alternative = "less")
 
 ```
 
-< write conclusions here > 
+As indicated by the high p-value of the non-parametric test, the pH did not show a significant decrease during consumption of potato starch twice a day. There was no pH data available for BRMPS, and thus an analysis on the supplements separately could not be performed.
 
 
 # Question 3
 What are the demographics (age, sex, race/ethnicity, average dietary fiber) of the participants consuming each brand of potato starch in your enterotype group? Use week 1 data only. Calculate mean and standard deviations when applicable. Use headings, add plain text descriptions or comments, or add more code chunks to keep code organized. 
 ```{r}
+sample_df3 <- sample_df %>%
+          filter(enterotype == "Type 3",
+                 supplement_consumed == "BRMPS" | supplement_consumed == "LOODAT" )
+
+#Age
+
+sample_df3 %>%
+  group_by(supplement_consumed, age) %>%
+  summarise(Counts = n())
+
+
+age_tab <- with(sample_df3, table(age,supplement_consumed))
+
+age_tab 
+
+
+#Sex
+
+sample_df3 %>%
+  group_by(supplement_consumed, sex) %>%
+  summarise(Counts = n())
+
+sex_tab <- with(sample_df3, table(sex,supplement_consumed))
+
+sex_tab 
+
+#race/ethnicity
+
+sample_df3 %>%
+  group_by(supplement_consumed, race_ethnicity) %>%
+  summarise(Counts = n())
+
+re_tab <- with(sample_df3, table(race_ethnicity,supplement_consumed))
+
+re_tab 
+
+#average dietary fiber
+sample_df3 %>%
+  group_by(supplement_consumed) %>%
+  summarise(mean(fiber_g, na.rm = TRUE))
+
+sample_df3 %>%
+  group_by(supplement_consumed) %>%
+  summarise(sd(fiber_g, na.rm = TRUE))
+
 
 ```
 
 <type results in Rmd table>
+| | Male | Female| Total Participants |
+|:-----:|:-----:|:-----:|:-----:|
+| BRMPS | 10 | 16 | 26 |
+| LOODAT | 6 | 18 | 24| 
 
+
+| | 2+ ethnicities | Asian | Asian or PI | Caucasian/White | MENA |
+|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|
+| BRMPS | 0 | 8 | 4 | 14 | 0 |
+| LOODAT | 4 | 4 | 0| | 14 | 2| 
+
+| | 18 | 19| 20 | 21 |
+|:-----:|:-----:|:-----:|:-----:|:-----:|
+| BRMPS | 6| 18 | 2 | 0 |
+| LOODAT | 6 |10 | 6| 2|
+
+| | Mean Fiber | SD Fiber| 
+|:-----:|:-----:|:-----:|
+| BRMPS |22.81818 | 10.055259  | 
+| LOODAT | 20.00000	 | 7.666982 |
 
 # Question 4
 Using the phyloseq object, determine if richness changed in your entrerotype group during consumption of potato starch. Conduct separate comparisons for each brand and frequency. Use comments to keep chunks of code organized.  
@@ -108,28 +528,367 @@ Using the phyloseq object, determine if richness changed in your entrerotype gro
 ### BRMPS 1xdaily
 ```{r}
 
+#data formatting
+
+brmps_1x_df <- sample_df %>%
+  filter(supplement_consumed == "BRMPS",
+         frequency == "1xdaily",
+         semester != "Winter2015",
+         enterotype == "Type 3")
+
+physq_3_1 <- physq_3 %>%
+  subset_samples(., supplement_consumed == "BRMPS") %>%
+  subset_samples(., frequency == "1xdaily")
+
+# calculate richness
+b1x_richness_df <- physq_3_1 %>%
+  # calculate richness
+  estimate_richness(., split = TRUE,  measures = c("Observed")) %>% 
+  # make sample_id column before join 
+  rownames_to_column(var = "id") %>% 
+  # join with sample data imported above
+  inner_join(brmps_1x_df, by = "id") %>%  
+  rename(richness = Observed) %>%
+  # calculate average richness per person, per week 
+  group_by(participant_id, study_week, semester, 
+           frequency, supplement_consumed) %>%
+  filter(frequency == "1xdaily",
+         supplement_consumed == "BRMPS") %>%
+  summarise(avg_richness = round(mean(richness), digits = 0)) 
+
+b1x_richness_df
+dim(b1x_richness_df)
+
+#plots
+
+rich1 <- physq_3_1 %>%
+  plot_richness(., "study_week", measures = c("Observed")) +
+  facet_grid("frequency") +
+  ylab("Richness (Observed ESVs)") + xlab(NULL)
+rich1
+
+rich1$layers <- rich1$layers[-1] #drop geom_point 
+
+rich2 <- rich1 +   
+  geom_violin(aes(color = study_week)) + #add violin in color
+  geom_jitter(aes(color = study_week)) +  #add individual points in color 
+  theme(legend.position = "none")
+rich2
+
+
+
+#Sample Sizes
+
+b1x_richness_df%>%
+  group_by(supplement_consumed) %>%
+  summarise(sample_size = n())
+#n=16
+
+
+# normality testing
+
+richb1x_wk1 <- b1x_richness_df %>%
+  filter(study_week == "week1")
+richb1x_wk3 <- b1x_richness_df %>%
+  filter(study_week == "week3")
+
+shapiro.test(richb1x_wk1$avg_richness) #p-value = 0.01128
+shapiro.test(richb1x_wk3$avg_richness) # p-value = 0.4332
+
+ggplot(richb1x_wk3, aes(x=avg_richness)) +
+  geom_histogram() 
+qqnorm(richb1x_wk3$avg_richness); qqline(richb1x_wk3$avg_richness)
+#roughly normal
+
+#check variances
+  var.test(x = richb1x_wk1$avg_richness, 
+         y = richb1x_wk3$avg_richness, 
+         alternative = "two.sided") 
+#p-value= 0.06717, variances are not equal
+
+#Statistical Test
+t.test(x = richb1x_wk1$avg_richness, 
+       y = richb1x_wk3$avg_richness,  
+       var.equal = FALSE,
+       paired = TRUE,
+       alternative = "two.sided")
+
+#p-value = 0.4087, no difference in richness
+
 ```
 
 ### BRMPS 2xdaily 
 ```{r}
+#data formatting
+
+brmps_2x_df <- sample_df %>%
+  filter(supplement_consumed == "BRMPS",
+         frequency == "2xdaily",
+         semester != "Winter2015",
+         enterotype == "Type 3")
+
+physq_3_2 <- physq_3 %>%
+  subset_samples(., supplement_consumed == "BRMPS") %>%
+  subset_samples(., frequency == "2xdaily")
+
+# calculate richness
+b2x_richness_df <- physq_3 %>%
+  # calculate richness
+  estimate_richness(., split = TRUE,  measures = c("Observed")) %>% 
+  # make sample_id column before join 
+  rownames_to_column(var = "id") %>% 
+  # join with sample data imported above
+  inner_join(brmps_2x_df, by = "id") %>%  
+  rename(richness = Observed) %>%
+  # calculate average richness per person, per week 
+  group_by(participant_id, study_week, semester, 
+           frequency, supplement_consumed) %>%
+  filter(frequency == "2xdaily",
+         supplement_consumed == "BRMPS") %>%
+  summarise(avg_richness = round(mean(richness), digits = 0)) 
+
+b2x_richness_df
+dim(b2x_richness_df)
+
+#plots
+
+rich3 <- physq_3_2 %>%
+  plot_richness(., "study_week", measures = c("Observed")) +
+  facet_grid("frequency") +
+  ylab("Richness (Observed ESVs)") + xlab(NULL)
+rich3
+
+rich3$layers <- rich3$layers[-1] #drop geom_point 
+
+rich4 <- rich3 +   
+  geom_violin(aes(color = study_week)) + #add violin in color
+  geom_jitter(aes(color = study_week)) +  #add individual points in color 
+  theme(legend.position = "none")
+rich4
+
+#Sample Sizes
+
+b2x_richness_df%>%
+  group_by(frequency) %>%
+  summarise(sample_size = n())
+#n=6, sample size too small
+
+richb2x_wk1 <- b2x_richness_df %>%
+  filter(study_week == "week1")
+richb2x_wk3 <- b2x_richness_df %>%
+  filter(study_week == "week3")
+
+#check variances
+  var.test(x = richb2x_wk1$avg_richness, 
+         y = richb2x_wk3$avg_richness, 
+         alternative = "two.sided") 
+#p-value= 0.2942, variances are equal
+
+
+#Statistical Test
+#non-parametric test
+
+wilcox.test(x =richb2x_wk1$avg_richness, 
+            y = richb2x_wk3$avg_richness, 
+            paired = TRUE,
+            alternative = "two.sided")
+#p-value = 0.5, no difference in richness
 
 ```
 
 ### LOODAT 1xdaily
 ```{r}
+LOODAT_1x_df <- sample_df %>%
+  filter(supplement_consumed == "LOODAT",
+         frequency == "1xdaily",
+         semester != "Winter2015",
+         enterotype == "Type 3")
+
+physq_3_3 <- physq_3 %>%
+  subset_samples(., supplement_consumed == "LOODAT") %>%
+  subset_samples(., frequency == "1xdaily")
+
+# calculate richness
+ldt1x_richness_df <- physq_3 %>%
+  # calculate richness
+  estimate_richness(., split = TRUE,  measures = c("Observed")) %>% 
+  # make sample_id column before join 
+  rownames_to_column(var = "id") %>% 
+  # join with sample data imported above
+  inner_join(LOODAT_1x_df, by = "id") %>%  
+  rename(richness = Observed) %>%
+  # calculate average richness per person, per week 
+  group_by(participant_id, study_week, semester, 
+           frequency, supplement_consumed) %>%
+  filter(frequency == "1xdaily",
+         supplement_consumed == "LOODAT") %>%
+  summarise(avg_richness = round(mean(richness), digits = 0)) 
+
+ldt1x_richness_df
+dim(ldt1x_richness_df)
+
+rich5 <- physq_3_3 %>%
+  plot_richness(., "study_week", measures = c("Observed")) +
+  facet_grid("frequency") +
+  ylab("Richness (Observed ESVs)") + xlab(NULL)
+rich5
+
+rich5$layers <- rich5$layers[-1] #drop geom_point 
+
+rich6 <- rich5 +   
+  geom_violin(aes(color = study_week)) + #add violin in color
+  geom_jitter(aes(color = study_week)) +  #add individual points in color 
+  theme(legend.position = "none")
+rich6
+
+
+#Sample Sizes
+
+ldt1x_richness_df%>%
+  group_by(supplement_consumed) %>%
+  summarise(sample_size = n())
+#n= 8
+
+
+# normality testing
+
+richldt1x_wk1 <- ldt1x_richness_df %>%
+  filter(study_week == "week1")
+richldt1x_wk3 <- ldt1x_richness_df %>%
+  filter(study_week == "week3")
+
+shapiro.test(richldt1x_wk1$avg_richness) #p-value = 0.6894
+shapiro.test(richldt1x_wk3$avg_richness) # p-value = 0.2074
+
+ggplot(richldt1x_wk1, aes(x=avg_richness)) +
+  geom_histogram() 
+qqnorm(richldt1x_wk1$avg_richness); qqline(richldt1x_wk1$avg_richness)
+
+ggplot(richldt1x_wk3, aes(x=avg_richness)) +
+  geom_histogram() 
+qqnorm(richldt1x_wk3$avg_richness); qqline(richldt1x_wk3$avg_richness)
+#not normal
+
+  var.test(x = richldt1x_wk1$avg_richness, 
+         y = richldt1x_wk3$avg_richness, 
+         alternative = "two.sided") 
+#p-value= 0.5822, variances are equal
+
+
+#Statistical Test
+#non-parametric test
+
+wilcox.test(x =richldt1x_wk1$avg_richness, 
+            y = richldt1x_wk3$avg_richness, 
+            paired = TRUE,
+            alternative = "two.sided")
+
+#p-value = 0.5614, no difference in richness
+
+
 
 ```
 
 ### LOODAT 2xdaily
 ```{r}
+LOODAT_2x_df <- sample_df %>%
+  filter(supplement_consumed == "LOODAT",
+         frequency == "2xdaily",
+         semester != "Winter2015",
+         enterotype == "Type 3")
+
+physq_3_4 <- physq_3 %>%
+  subset_samples(., supplement_consumed == "LOODAT") %>%
+  subset_samples(., frequency == "2xdaily")
+
+# calculate richness
+ldt2x_richness_df <- physq_3 %>%
+  # calculate richness
+  estimate_richness(., split = TRUE,  measures = c("Observed")) %>% 
+  # make sample_id column before join 
+  rownames_to_column(var = "id") %>% 
+  # join with sample data imported above
+  inner_join(LOODAT_2x_df, by = "id") %>%  
+  rename(richness = Observed) %>%
+  # calculate average richness per person, per week 
+  group_by(participant_id, study_week, semester, 
+           frequency, supplement_consumed) %>%
+  filter(frequency == "2xdaily",
+         supplement_consumed == "LOODAT") %>%
+  summarise(avg_richness = round(mean(richness), digits = 0)) 
+
+ldt2x_richness_df
+dim(ldt2x_richness_df)
+
+
+rich7 <- physq_3_4 %>%
+  plot_richness(., "study_week", measures = c("Observed")) +
+  facet_grid("frequency") +
+  ylab("Richness (Observed ESVs)") + xlab(NULL)
+rich7
+
+rich7$layers <- rich7$layers[-1] #drop geom_point 
+
+rich8 <- rich7 +   
+  geom_violin(aes(color = study_week)) + #add violin in color
+  geom_jitter(aes(color = study_week)) +  #add individual points in color 
+  theme(legend.position = "none")
+rich8
+
+
+#Sample Sizes
+
+ldt2x_richness_df%>%
+  group_by(supplement_consumed) %>%
+  summarise(sample_size = n())
+#n= 16
+
+
+# normality testing
+
+richldt2x_wk1 <- ldt2x_richness_df %>%
+  filter(study_week == "week1")
+richldt2x_wk3 <- ldt2x_richness_df %>%
+  filter(study_week == "week3")
+
+shapiro.test(richldt2x_wk1$avg_richness) #p-value = 0.1987
+shapiro.test(richldt2x_wk3$avg_richness) # p-value = 0.1762
+
+ggplot(richldt2x_wk1, aes(x=avg_richness)) +
+  geom_histogram() 
+qqnorm(richldt2x_wk1$avg_richness); qqline(richldt2x_wk1$avg_richness)
+
+ggplot(richldt2x_wk3, aes(x=avg_richness)) +
+  geom_histogram() 
+qqnorm(richldt2x_wk3$avg_richness); qqline(richldt2x_wk3$avg_richness)
+
+#NOT normal
+
+  var.test(x = richldt2x_wk1$avg_richness, 
+         y = richldt2x_wk3$avg_richness, 
+         alternative = "two.sided") 
+#p-value= 0.9851, variances are equal
+  
+#Statistical Test
+wilcox.test(x =richldt2x_wk1$avg_richness, 
+            y = richldt2x_wk3$avg_richness, 
+            paired = TRUE,
+            alternative = "two.sided")
+
+#p-value = 0.05469, significant difference in richness
 
 ```
 
-<write conclusions here>
+According to the statistical testing of each supplement and frequency, the consumption of LOODAT twice daily is the only instance wherein there is a significance difference in average richness from week one to week 3
 
 Combine all four plots into one multi-panel figure.
 ```{r}
 # name final plot plot_q4
+
+plot_q4 <- plot_grid(rich2, rich4, rich6, rich8,
+           nrow = 2, ncol = 2)
+
+plot_q4
 ```
 
 
@@ -138,60 +897,286 @@ Determine if community composition changed in your entrerotype group during cons
 ### BRMPS 1xdaily
 ```{r}
 # format, subset, ordinate
+# data formatting 
+physq_3_5 <- physq_3 %>% 
+  subset_samples(., supplement_consumed == "BRMPS") %>%
+  subset_samples(., frequency == "1xdaily") %>%
+  prune_taxa(taxa_sums(.) > 1000, .) %>%
+  prune_samples(sample_sums(.) > 1000, .)
+
+# get read counts 
+sample_sum_b1x_df <- data.frame(sum = sample_sums(physq_3_5))
+
+# Histogram of sample read counts
+ggplot(sample_sum_b1x_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "gray", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+# Summary statistics on read counts 
+min(sample_sums(physq_3_5)) #6562
+mean(sample_sums(physq_3_5)) #18705.09
+max(sample_sums(physq_3_5))  #28052
+
+# scale samples to even depth using custom function
+physq_scale_b1x <- physq_3_5 %>%
+  scale_reads(round = "round") 
+
+#Ordinate
+
+
+physq_bc_b1x <- ordinate(physq_scale_b1x, 
+           method = "NMDS", 
+           k=3, maxit=500, try=50,
+           distance = "bray")
+physq_bc_b1x
+
+#all stresses less than 0.20
+
 ```
 
 ```{r}
 # plot 
+
+
+ordplotb1x <- plot_ordination(physeq = physq_3_5, 
+                     ordination = physq_bc_b1x, 
+                     type = "samples", 
+                     color = "study_week", 
+                     shape = "semester")
+print(ordplotb1x)
 ```
 
 ```{r}
 # test(s) 
+# calculate BC index, get distance matrix
+dat_bray_b1x <- phyloseq::distance(physq_3_5, method = "bray") 
+
+sampleb1xdf <- physq_3_5 %>% 
+  sample_data(.) %>% #extract sample data from phyloseq object 
+  as(., "data.frame") #convert to data frame for adonis()
+
+# run test
+adn_res_b1x <- adonis(formula = dat_bray_b1x ~ study_week, 
+                  data = sampleb1xdf)
+
+# view results 
+print(adn_res_b1x)
 ```
+
 
 ### BRMPS 2xdaily 
 ```{r}
 # format, subset, ordinate
+# data formatting 
+physq_3_6 <- physq_3 %>% 
+  subset_samples(., supplement_consumed == "BRMPS") %>%
+  subset_samples(., frequency == "2xdaily") %>%
+  prune_taxa(taxa_sums(.) > 1000, .) %>%
+  prune_samples(sample_sums(.) > 1000, .)
+
+# get read counts 
+sample_sum_b2x_df <- data.frame(sum = sample_sums(physq_3_6))
+
+# Histogram of sample read counts
+ggplot(sample_sum_b2x_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "gray", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+# Summary statistics on read counts 
+min(sample_sums(physq_3_6)) #14106
+mean(sample_sums(physq_3_6)) #24070.69
+max(sample_sums(physq_3_6))  #34117
+
+# scale samples to even depth using custom function
+physq_scale_b2x <- physq_3_6 %>%
+  scale_reads(round = "round") 
+
+#Ordinate
+
+
+physq_bc_b2x <- ordinate(physq_scale_b2x, 
+           method = "NMDS", 
+           k=3, maxit=500, try=50,
+           distance = "bray")
+physq_bc_b2x
+
+#all stresses less than 0.20
+
 ```
 
 ```{r}
 # plot 
+ordplotb2x <- plot_ordination(physeq = physq_3_6, 
+                     ordination = physq_bc_b2x, 
+                     type = "samples", 
+                     color = "study_week", 
+                     shape = "semester")
+print(ordplotb2x)
 ```
 
 ```{r}
 # test(s) 
+# calculate BC index, get distance matrix
+dat_bray_b2x <- phyloseq::distance(physq_3_6, method = "bray") 
+
+sampleb2xdf <- physq_3_6 %>% 
+  sample_data(.) %>% #extract sample data from phyloseq object 
+  as(., "data.frame") #convert to data frame for adonis()
+
+# run test
+adn_res_b2x <- adonis(formula = dat_bray_b2x ~ study_week, 
+                  data = sampleb2xdf)
+
+# view results 
+print(adn_res_b2x)
 ```
 
 ### LOODAT 1xdaily
 ```{r}
 # format, subset, ordinate
+physq_3_7 <- physq_3 %>% 
+  subset_samples(., supplement_consumed == "LOODAT") %>%
+  subset_samples(., frequency == "1xdaily") %>%
+  prune_taxa(taxa_sums(.) > 1000, .) %>%
+  prune_samples(sample_sums(.) > 1000, .)
+
+# get read counts 
+sample_sum_ldt1x_df <- data.frame(sum = sample_sums(physq_3_7))
+
+# Histogram of sample read counts
+ggplot(sample_sum_ldt1x_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "gray", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+# Summary statistics on read counts 
+min(sample_sums(physq_3_7)) #3831
+mean(sample_sums(physq_3_7)) #16451
+max(sample_sums(physq_3_7))  #23173
+
+# scale samples to even depth using custom function
+physq_scale_ldt1x <- physq_3_7 %>%
+  scale_reads(round = "round") 
+
+#Ordinate
+
+
+physq_bc_ldt1x <- ordinate(physq_scale_ldt1x, 
+           method = "NMDS", 
+           k=3, maxit=500, try=50,
+           distance = "bray")
+physq_bc_ldt1x
+
+#all stresses less than 0.20
 ```
 
 ```{r}
 # plot 
+ordplotldt1x <- plot_ordination(physeq = physq_3_7, 
+                     ordination = physq_bc_ldt1x, 
+                     type = "samples", 
+                     color = "study_week", 
+                     shape = "semester")
+print(ordplotldt1x)
 ```
 
 ```{r}
 # test(s) 
+dat_bray_ldt1x <- phyloseq::distance(physq_3_7, method = "bray") 
+
+sampleldt1xdf <- physq_3_7 %>% 
+  sample_data(.) %>% #extract sample data from phyloseq object 
+  as(., "data.frame") #convert to data frame for adonis()
+
+# run test
+adn_res_ldt1x <- adonis(formula = dat_bray_ldt1x ~ study_week, 
+                  data = sampleldt1xdf)
+
+# view results 
+print(adn_res_ldt1x)
 ```
 
 ### LOODAT 2xdaily
 ```{r}
 # format, subset, ordinate
+physq_3_8 <- physq_3 %>% 
+  subset_samples(., supplement_consumed == "LOODAT") %>%
+  subset_samples(., frequency == "2xdaily") %>%
+  prune_taxa(taxa_sums(.) > 1000, .) %>%
+  prune_samples(sample_sums(.) > 1000, .)
+
+# get read counts 
+sample_sum_ldt2x_df <- data.frame(sum = sample_sums(physq_3_8))
+
+# Histogram of sample read counts
+ggplot(sample_sum_ldt2x_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "gray", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+# Summary statistics on read counts 
+min(sample_sums(physq_3_8)) #3831
+mean(sample_sums(physq_3_8)) #16451
+max(sample_sums(physq_3_8))  #23173
+
+# scale samples to even depth using custom function
+physq_scale_ldt2x <- physq_3_8 %>%
+  scale_reads(round = "round") 
+
+#Ordinate
+
+
+physq_bc_ldt2x <- ordinate(physq_scale_ldt2x, 
+           method = "NMDS", 
+           k=3, maxit=500, try=50,
+           distance = "bray")
+physq_bc_ldt2x
 ```
 
 ```{r}
 # plot 
+ordplotldt2x <- plot_ordination(physeq = physq_3_8, 
+                     ordination = physq_bc_ldt2x, 
+                     type = "samples", 
+                     color = "study_week", 
+                     shape = "semester")
+print(ordplotldt2x)
 ```
 
 ```{r}
 # test(s) 
-```
+dat_bray_ldt2x <- phyloseq::distance(physq_3_8, method = "bray") 
 
-<write conclusions here>
+sampleldt2xdf <- physq_3_8 %>% 
+  sample_data(.) %>% #extract sample data from phyloseq object 
+  as(., "data.frame") #convert to data frame for adonis()
+
+# run test
+adn_res_ldt2x <- adonis(formula = dat_bray_ldt2x ~ study_week, 
+                  data = sampleldt2xdf)
+
+# view results 
+print(adn_res_ldt2x)
+```
+Conclusion:
+
+None of the bray-curtis indexed tests provided an output with a significantly low p-value with a high R2 value. This idnicates that none of the supplement and frequency combination conditions present a difference in community composition from week 1 to week 3.
 
 Combine all four plots into one multi-panel figure.
 ```{r}
 # name final plot plot_q5
+
+plot_q5 <- plot_grid(ordplotb1x, ordplotb2x, ordplotldt1x, ordplotldt2x,
+           nrow = 2, ncol = 2)
+
+plot_q5
+
 ```
 
 
